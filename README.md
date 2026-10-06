@@ -1,356 +1,201 @@
 # Provenance Guard
 
-Provenance Guard is a lightweight AI content attribution and transparency system. It analyzes submitted text using two independent detection signals, combines those signals into a confidence score, assigns an attribution result, displays a transparency label, records the decision in a structured audit log, and provides creators with an appeals process.
+Provenance Guard is an AI-assisted content provenance system that analyzes submitted text and estimates whether the content is likely human-written, likely AI-generated, or uncertain.
 
-The goal of this project is not to claim that AI authorship can be determined with certainty. Instead, the system demonstrates how multiple imperfect signals can be combined with uncertainty-aware labels, logging, and an appeals mechanism to create a more responsible attribution workflow.
-
----
-
-## System Architecture
-
-Provenance Guard is implemented as a Flask API with two primary workflows: content submission and creator appeal.
-
-### Submission Flow
-
-```text
-                         Raw Text + Creator ID
-                                  |
-                                  v
-                           POST /submit
-                                  |
-                    +-------------+-------------+
-                    |                           |
-                    v                           v
-          LLM-Based Classification     Stylometric Analysis
-               (Groq API)                 (Pure Python)
-                    |                           |
-                    | llm_score                 | stylometric_score
-                    +-------------+-------------+
-                                  |
-                                  v
-                         Confidence Scoring
-                    60% LLM + 40% Stylometric
-                                  |
-                                  v
-                         Attribution Result
-                                  |
-                                  v
-                         Transparency Label
-                                  |
-                                  v
-                            Audit Log
-                                  |
-                                  v
-                           JSON Response
-```
-
-### Appeal Flow
-
-```text
-                Content ID + Creator Reasoning
-                              |
-                              v
-                       POST /appeal
-                              |
-                              v
-                   Locate Original Decision
-                              |
-                              v
-                 Status = "under_review"
-                              |
-                              v
-                    Update Audit Log
-                              |
-                              v
-                    Confirmation Response
-```
-
-The `/submit` endpoint receives text and a creator identifier. The text is independently analyzed by an LLM-based signal and a stylometric signal. Their scores are combined into a single confidence score, which determines the attribution result and transparency label. The decision is then recorded in the audit log.
-
-The `/appeal` endpoint allows a creator to provide the original content ID and reasoning for an appeal. The associated decision is changed from `classified` to `under_review`, and the appeal is recorded in the audit log.
+The project focuses on transparency rather than presenting AI detection as definitive proof. It combines multiple detection signals, generates a confidence score, produces a transparency label, records decisions in an audit log, supports creator appeals, and protects the submission endpoint with rate limiting.
 
 ---
 
-## API Endpoints
+## Architecture Overview
 
-### `GET /`
+A submission moves through the system using the following process:
 
-Confirms that the API is running.
+1. A user submits text along with a `creator_id` to the `/submit` endpoint.
+2. The API validates that the required information is present.
+3. The submitted text is evaluated using two detection signals:
+   - an LLM-based score
+   - a stylometric score
+4. The two signals are combined to determine an attribution result and confidence score.
+5. The system assigns one of three classifications:
+   - `likely_ai`
+   - `likely_human`
+   - `uncertain`
+6. A transparency label is generated explaining the classification.
+7. The result, confidence score, signal scores, creator ID, content ID, status, and timestamp are recorded in the audit log.
+8. The API returns the classification and transparency information to the user.
+9. If the creator disagrees with the result, an appeal can be submitted through the `/appeal` endpoint.
+10. The appeal is added to the audit history and the content status changes to `under_review`.
 
-Example response:
+The overall path is:
 
-```json
-{
-  "message": "Provenance Guard API is running"
-}
-```
+`Submission -> Validation -> Detection Signals -> Confidence/Attribution -> Transparency Label -> Audit Log -> Response`
 
-### `POST /submit`
+If an appeal is necessary:
 
-Accepts text for analysis.
-
-Required JSON fields:
-
-```json
-{
-  "text": "Text to analyze",
-  "creator_id": "creator identifier"
-}
-```
-
-The response includes:
-
-- `content_id`
-- `attribution`
-- `confidence`
-- `label`
-- individual detection signals
-- `status`
-
-### `POST /appeal`
-
-Allows a creator to appeal an existing classification.
-
-Required JSON fields:
-
-```json
-{
-  "content_id": "original content ID",
-  "creator_reasoning": "Reason the classification should be reviewed"
-}
-```
-
-### `GET /log`
-
-Returns the structured audit history containing classification and appeal information.
+`Classification -> Creator Appeal -> Under Review -> Audit Log`
 
 ---
 
-## Detection Signal 1: LLM-Based Classification
+## Detection Signals
 
-The first signal uses a language model through the Groq API.
+Provenance Guard uses two signals instead of relying on a single detector.
 
-The implementation uses:
+### 1. LLM Score
 
-```text
-openai/gpt-oss-120b
-```
+The LLM-based signal analyzes characteristics of the submitted text and returns a score representing how strongly the content resembles AI-generated writing.
 
-The model receives the submitted text and is instructed to estimate the likelihood that the content is AI-generated.
+This signal was selected because a language model can examine characteristics that are difficult to capture using simple rules, including structure, phrasing, consistency, and other linguistic patterns.
 
-The model must return a score between:
+However, an LLM score is not proof of authorship. Human writers may produce highly structured text, while AI-generated text can be prompted to imitate informal human writing.
 
-```text
-0.0 = strongly human-written
-1.0 = strongly AI-generated
-```
+### 2. Stylometric Score
 
-The response is parsed as JSON and validated so that the resulting score remains between 0.0 and 1.0.
+The stylometric signal examines writing characteristics such as sentence structure, variation, punctuation, and other stylistic patterns.
 
-### Why This Signal Was Chosen
+This provides a second signal that does not depend entirely on the LLM's judgment.
 
-A language model can evaluate characteristics that are difficult to represent with a single numerical heuristic, including phrasing, structural consistency, tone, and other broad linguistic patterns.
+Stylometry also has limitations. Formal human writing can appear highly structured, while carefully prompted AI-generated writing may contain irregularities normally associated with human writing.
 
-However, an LLM judgment is not treated as proof of authorship. It is only one signal in the system.
+### Why Use Multiple Signals?
 
----
+Neither signal can reliably determine authorship by itself. Combining them allows the system to recognize situations where the signals agree and, equally importantly, situations where they disagree.
 
-## Detection Signal 2: Stylometric Analysis
-
-The second signal is implemented locally in Python and does not use an external model.
-
-It evaluates three measurable properties of the submitted text:
-
-1. Sentence-length variation
-2. Vocabulary diversity
-3. Punctuation density
-
-Sentence-length variation measures how much sentence lengths differ throughout the text. Vocabulary diversity compares the number of unique words with the total number of words. Punctuation density measures selected punctuation marks relative to the number of words.
-
-The three measurements are converted into AI-likelihood values and combined into one stylometric score.
-
-### Why This Signal Was Chosen
-
-The stylometric signal provides a second source of evidence that is independent of the LLM call. It also makes the system more interpretable because its calculations are based on measurable textual characteristics.
-
-These characteristics are imperfect indicators and should not be interpreted as proof that content was written by either a human or an AI system.
+When the evidence is mixed, Provenance Guard returns an `uncertain` result instead of forcing the content into an AI or human category.
 
 ---
 
 ## Confidence Scoring
 
-The final confidence score combines the two independent signals.
+The system combines the LLM and stylometric signals when determining the final attribution and confidence.
 
-The formula is:
+The confidence value should not be interpreted as mathematical proof that a particular person or AI system created the content. It represents the strength of the detection evidence available to Provenance Guard.
+
+Testing showed why this distinction is important.
+
+### Example 1 – Stronger AI Signal but Mixed Evidence
+
+A formal AI-style test submission produced:
 
 ```text
-combined confidence =
-(LLM score × 0.60) +
-(stylometric score × 0.40)
+LLM score: 0.70
+Stylometric score: 0.32
+Attribution: uncertain
 ```
 
-The LLM signal receives a weight of 60% because it can evaluate broader linguistic patterns.
+Although the LLM signal was relatively high at `0.70`, the stylometric signal was much lower at `0.32`.
 
-The stylometric signal receives a weight of 40% because it provides useful independent structural evidence but relies on simplified heuristics.
+Because the detectors did not provide sufficiently consistent evidence, the system returned an uncertain classification instead of automatically labeling the submission as AI-generated.
 
----
+This demonstrates why the project uses multiple signals rather than treating a single detector score as definitive.
 
-## Uncertainty Representation
+### Example 2 – Lower Confidence / Likely Human
 
-The combined score is converted into one of three attribution categories.
+A more informal human-style submission produced:
 
-| Combined Score | Attribution |
-|---|---|
-| 0.00–0.34 | Likely Human |
-| 0.35–0.69 | Uncertain |
-| 0.70–1.00 | Likely AI |
+```text
+LLM score: 0.15
+Stylometric score: 0.42
+Confidence: 0.258
+Attribution: likely_human
+```
 
-The middle range is intentionally broad. AI-content attribution is uncertain, and a system that forces every submission into either "human" or "AI" risks presenting weak evidence as certainty.
+The much lower LLM score contributed to the system classifying the content as likely human-written.
+
+### Additional Validation Example
+
+Another test produced:
+
+```text
+LLM score: 0.55
+Stylometric score: 0.48
+Confidence: 0.522
+Attribution: uncertain
+```
+
+The signals were near the middle of the range, so the system appropriately avoided making a strong authorship claim.
+
+These examples demonstrate that the confidence mechanism responds differently to different writing samples and that mixed evidence can result in an uncertain classification.
 
 ---
 
 ## Transparency Labels
 
-The system displays one of three transparency labels.
+The system provides a human-readable transparency label instead of returning only a numeric score.
 
-### High-Confidence AI
+There are three possible label variants.
 
-> **Likely AI-Generated:** Our analysis found strong indicators that this content may have been generated by AI. This classification is based on multiple detection signals and is not a definitive determination of authorship.
+### High-Confidence AI / Likely AI-Generated
 
-### High-Confidence Human
+```text
+Likely AI-Generated: Our analysis found strong indicators that this content was AI-generated. This classification is based on multiple detection signals and is not a definitive determination of authorship.
+```
 
-> **Likely Human-Written:** Our analysis found strong indicators that this content was written by a human. This classification is based on multiple detection signals and is not a definitive determination of authorship.
+### Human / Likely Human-Written
+
+```text
+Likely Human-Written: Our analysis found strong indicators that this content was written by a human. This classification is based on multiple detection signals and is not a definitive determination of authorship.
+```
 
 ### Uncertain
 
-> **Uncertain:** Our analysis found mixed indicators and cannot confidently determine whether this content was human-written or AI-generated.
+```text
+Uncertain: Our analysis found mixed indicators and cannot confidently determine whether this content was human-written or AI-generated.
+```
 
-The wording intentionally communicates uncertainty instead of presenting the system's output as definitive proof.
+The wording intentionally avoids claiming certainty because AI-content detection can produce false positives and false negatives.
 
 ---
 
-## Evaluation and Testing
+## Rate Limiting
 
-The system was tested with four deliberately different writing samples.
+The `/submit` endpoint is protected with rate limiting.
 
-| Test | LLM Score | Stylometric Score | Combined Confidence | Classification |
-|---|---:|---:|---:|---|
-| AI-style writing | 0.65 | 0.42 | 0.558 | Uncertain |
-| Informal human-style writing | 0.15 | 0.42 | 0.258 | Likely Human |
-| Formal/borderline writing | 0.25 | 0.34 | 0.286 | Likely Human |
-| Borderline mixed-style writing | 0.55 | 0.48 | 0.522 | Uncertain |
+Rate limiting was included for two reasons:
 
-These tests demonstrate that the two signals produce different values and that the combined confidence score varies across inputs.
+1. It prevents a single user or client from repeatedly sending large numbers of requests in a short period.
+2. It reduces unnecessary calls to the external model service and helps control resource usage.
 
-### Example 1: AI-Style Writing
+The selected limits allow normal testing and usage while preventing rapid automated submission attempts.
 
-The AI-style test produced:
+The rate limiter was tested by sending repeated requests to the endpoint. Once the allowed number of requests was exceeded, the API returned:
 
 ```text
-LLM score:          0.65
-Stylometric score: 0.42
-Combined score:    0.558
-Classification:    Uncertain
+429
 ```
 
-This result was lower than expected for deliberately AI-style writing. It demonstrates an important limitation: polished or structured text cannot reliably be attributed to AI based only on linguistic characteristics.
-
-Rather than manually changing the result, the system preserved the score and returned the uncertainty label.
-
-### Example 2: Informal Human-Style Writing
-
-The informal human-style test produced:
+with the response:
 
 ```text
-LLM score:          0.15
-Stylometric score: 0.42
-Combined score:    0.258
-Classification:    Likely Human
+Rate limit exceeded
+Please wait before submitting more content.
 ```
 
-The LLM signal identified substantially more human-like characteristics in this example, while the stylometric signal remained at 0.42.
-
-This also demonstrates why the system retains both signal scores rather than hiding them behind the combined result.
-
-### Borderline Results
-
-The first borderline test produced a combined confidence of `0.286` and was classified as Likely Human.
-
-The second borderline test produced a combined confidence of `0.522` and was classified as Uncertain.
-
-These results demonstrate that writing style can substantially affect attribution scores and reinforce the need for an uncertainty category.
+This confirmed that the rate-limiting protection was functioning correctly.
 
 ---
 
-## Appeals Workflow
+## Audit Log
 
-Creators can appeal classifications they believe are incorrect.
+Provenance Guard maintains an audit trail so that classification decisions can be reviewed later.
 
-An appeal requires:
+Each classification record includes information such as:
 
-```text
-content_id
-creator_reasoning
-```
-
-When an appeal is submitted:
-
-1. The system locates the original classification.
-2. The original status changes from `classified` to `under_review`.
-3. The creator's reasoning is attached to the classification.
-4. A separate appeal event is added to the audit log.
-5. The API confirms that the appeal was received.
-
-The system does not automatically reverse a classification. It places the decision under review so that a human reviewer could evaluate it later.
-
-### Appeal Test
-
-An appeal was submitted for the content ID:
-
-```text
-ed0aa416-d714-4710-bcc7-57fbd0ae147b
-```
-
-with the reasoning:
-
-> I wrote this content myself and believe the classification should be reviewed.
-
-The endpoint successfully returned:
-
-```text
-status: under_review
-message: Appeal received successfully.
-```
-
-The audit log subsequently showed both the updated original classification and a separate appeal event.
-
----
-
-## Audit Logging
-
-Provenance Guard stores structured decision records in:
-
-```text
-audit_log.json
-```
-
-Classification records include:
-
-- Content ID
-- Creator ID
-- Timestamp
-- Attribution
+- content ID
+- creator ID
+- attribution
+- confidence
 - LLM score
-- Stylometric score
-- Combined confidence
-- Review status
-- Appeal reasoning when applicable
+- stylometric score
+- status
+- timestamp
+- appeal reasoning, when applicable
 
-### Example Audit Entry
+The following entries are examples generated during testing.
+
+### Audit Entry 1
 
 ```json
 {
-  "appeal_reasoning": null,
   "attribution": "uncertain",
   "confidence": 0.558,
   "content_id": "447aba41-70d6-461c-abfa-0700cae1bb7f",
@@ -362,113 +207,87 @@ Classification records include:
 }
 ```
 
-The `/log` endpoint was tested after classification and appeal operations. The resulting log contained multiple classification records and the appeal event.
-
----
-
-## Rate Limiting
-
-The `/submit` endpoint is rate limited using Flask-Limiter.
-
-The configured limits are:
-
-```text
-10 submissions per minute
-100 submissions per day
-```
-
-Rate limiting helps prevent automated abuse, excessive API usage, and unnecessary consumption of the external model service.
-
-The limit was tested by sending repeated requests to `/submit`.
-
-Initial intentionally incomplete requests returned:
-
-```text
-400
-```
-
-After the request threshold was reached, the server returned:
-
-```text
-429
-```
-
-with:
+### Audit Entry 2
 
 ```json
 {
-  "error": "Rate limit exceeded",
-  "message": "Please wait before submitting more content."
+  "attribution": "likely_human",
+  "confidence": 0.258,
+  "content_id": "c778eca5-efeb-4ce3-a92a-e2876c55dd29",
+  "creator_id": "test-human",
+  "llm_score": 0.15,
+  "status": "classified",
+  "stylometric_score": 0.42,
+  "timestamp": "2026-10-06T01:51:28.653822+00:00"
 }
 ```
 
-This confirms that the endpoint blocks excessive requests.
+### Audit Entry 3 – Appealed Submission
+
+```json
+{
+  "appeal_reasoning": "I wrote this content myself and believe the classification should be reviewed.",
+  "attribution": "uncertain",
+  "confidence": 0.522,
+  "content_id": "ed0aa416-d714-4710-bcc7-57fbd0ae147b",
+  "creator_id": "test-borderline-2",
+  "llm_score": 0.55,
+  "status": "under_review",
+  "stylometric_score": 0.48,
+  "timestamp": "2026-10-06T01:54:04.976493+00:00"
+}
+```
+
+The third example demonstrates the appeal process. After the appeal was submitted, the content was changed to `under_review`, and the creator's reasoning was preserved in the audit history.
+
+The complete testing log is stored in:
+
+`audit_log.json`
 
 ---
 
-## Error Handling
+## Appeal Process
 
-The API validates incoming requests before attempting classification.
+Creators can challenge a classification through the `/appeal` endpoint.
 
-Examples include:
+An appeal includes:
 
-- Missing JSON body → HTTP 400
-- Missing `text` → HTTP 400
-- Missing `creator_id` → HTTP 400
-- Missing appeal information → HTTP 400
-- Unknown content ID during appeal → HTTP 404
-- Excessive submissions → HTTP 429
-- Detection/API failure → HTTP 500
+- the `content_id`
+- the creator's reasoning
 
-This prevents malformed requests from being processed as valid classifications.
+For example:
 
----
+```text
+I wrote this content myself and believe the classification should be reviewed.
+```
 
-## Limitations
+After the appeal is received, the system returns:
 
-Provenance Guard is a demonstration system and should not be used as definitive evidence of authorship.
+```text
+Appeal received successfully.
+```
 
-### False Positives
+and changes the status to:
 
-Highly polished human writing may appear structurally similar to AI-generated writing. Academic, professional, or technical writing may therefore receive an elevated AI-likelihood score.
+```text
+under_review
+```
 
-A false positive could unfairly affect a creator if the result were treated as proof rather than probabilistic evidence.
-
-### False Negatives
-
-AI-generated text that has been substantially edited by a human may appear more human-like to both signals. The system only evaluates the submitted text and does not have access to its complete creation history.
-
-### Stylometric Limitations
-
-Sentence variation, vocabulary diversity, and punctuation usage are not unique indicators of AI generation. Human writers naturally differ in style, education, language background, genre, and editing habits.
-
-### LLM Limitations
-
-The LLM itself cannot know who authored a piece of text. It is making an inference based on patterns in the submitted content.
-
-The AI-style evaluation example illustrates this limitation: text intentionally written in a polished AI-like style received a combined score of only `0.558`, resulting in an Uncertain classification.
-
-### Short Text
-
-Very short submissions provide fewer linguistic features for either signal to evaluate and may therefore produce less meaningful results.
+This feature is important because automated AI-content detection should not be treated as unquestionable evidence.
 
 ---
 
-## Potential Harm and Mitigation
+## Known Limitations
 
-Incorrect attribution could negatively affect writers, students, employees, journalists, or creators if an automated classification were treated as definitive proof.
+A major limitation of the system is that formal human writing may resemble AI-generated writing.
 
-The project attempts to reduce this risk through:
+For example, academic essays, technical reports, professional communications, and other highly structured human writing may contain consistent sentence structure and polished language that an AI detector associates with generated content.
 
-- Two independent signals
-- A broad uncertainty range
-- Transparency labels that avoid claims of certainty
-- Preservation of individual signal scores
-- Structured audit logging
-- An appeals workflow
-- Human review rather than automatic reversal of appealed decisions
+The opposite problem can also occur. AI-generated content can be intentionally prompted to include slang, grammatical inconsistencies, short sentences, personal language, or other characteristics associated with human writing.
 
-The system is intended to support review and transparency, not replace human judgment.
+Testing demonstrated this limitation directly. One formal AI-style test received an LLM score of `0.70`, but its stylometric score was only `0.32`. The system therefore returned `uncertain`.
+
+This is why Provenance Guard uses cautious labels such as `likely_human`, `likely_ai`, and `uncertain` rather than claiming to determine authorship with certainty.
 
 ---
 
@@ -476,113 +295,78 @@ The system is intended to support review and transparency, not replace human jud
 
 ### How the Specification Helped
 
-Writing the specification before implementation made the relationship between the detection signals, confidence score, transparency labels, audit logging, and appeals workflow explicit before coding began.
+The specification helped define the system as more than a basic AI detector. In particular, the requirements for transparency labels, confidence scoring, audit logging, rate limiting, and appeals encouraged the project to consider how an AI detection system affects the people whose content is being evaluated.
 
-The predefined thresholds also made implementation more consistent because classification behavior was decided before test results were observed.
+The appeal requirement was especially useful because it introduced a human-review path rather than treating an automated classification as final.
 
-### Where Implementation Diverged
+### How My Implementation Diverged
 
-The original plan referenced the Groq model:
+The implementation uses a relatively lightweight combination of an LLM signal and a stylometric signal rather than a production-grade provenance infrastructure or specialized trained detection model.
 
-```text
-meta-llama/llama-4-scout-17b-16e-instruct
-```
+This decision kept the project small enough to implement and test within the assignment while still demonstrating the required architecture and responsible-AI concepts.
 
-During implementation, the API returned a model-not-found/access error.
-
-The implementation therefore uses:
-
-```text
-openai/gpt-oss-120b
-```
-
-The overall signal design remained unchanged: the model receives text and returns an AI-likelihood score between 0.0 and 1.0.
-
-This change was made because the originally planned model was unavailable in the development environment.
+A production implementation would require substantially more validation data, calibrated thresholds, security controls, persistent storage, authentication, and evaluation across different writing populations.
 
 ---
 
-## AI Tool Usage
+## AI Usage
 
-AI tools were used during development as an implementation assistant rather than as an unchecked source of final code.
+AI tools were used as development assistance during this project.
 
-### Instance 1: Flask API Structure
+### Instance 1 – API Structure and Debugging
 
-I directed the AI assistant to help implement the Flask application and `/submit` endpoint based on the requirements already defined in `planning.md`.
+I directed AI to help me structure and debug the Flask API, including the submission flow, JSON responses, classification logic, and endpoint behavior.
 
-I tested the endpoint first with placeholder values before connecting it to the Groq detection signal. I then verified the LLM signal independently before integrating it into `/submit`.
+I did not simply accept the first generated solution. I ran the application locally, tested the endpoints using PowerShell requests, reviewed the returned scores and classifications, and revised the implementation when the behavior did not match the intended project requirements.
 
-### Instance 2: Detection and Confidence Logic
+### Instance 2 – Detection and Transparency Logic
 
-I directed the AI assistant to implement the second stylometric signal and the 60/40 confidence formula from my specification.
+I used AI assistance while developing the detection and transparency logic, including how the LLM score and stylometric score could contribute to the final classification.
 
-I verified the implementation using four deliberately different text samples and retained the actual results even when they differed from expectations.
+During testing, I revised the approach based on actual outputs. For example, a test produced an LLM score of `0.70` but a stylometric score of `0.32`. Rather than treating the LLM result alone as proof of AI authorship, I retained the uncertain classification because the signals disagreed.
 
-For example, the deliberately AI-style text received a combined score of `0.558` instead of a high-confidence AI classification. I did not alter the score to force the expected result.
+### Instance 3 – Documentation
 
-### Instance 3: Production Features
+I used AI to help organize the README and explain the architecture and testing evidence clearly.
 
-I directed the AI assistant to implement the transparency labels, appeals workflow, audit logging, and rate limiting according to the previously written specification.
-
-I manually tested the appeal workflow and verified that the classification changed to `under_review`. I also tested the rate limiter and confirmed that excessive requests returned HTTP 429.
-
-### Human Verification
-
-All generated implementation assistance was tested locally before being accepted. Test outputs, confidence scores, audit entries, and error responses were observed from the running application rather than fabricated for documentation.
+I verified the documentation against the actual outputs produced by the application and used the real confidence scores, classifications, audit entries, appeal result, and rate-limit response from my testing rather than presenting invented test results.
 
 ---
 
-## Project Files
+## Running the Project
 
-```text
-ai201-project4-provenance-guard/
-│
-├── app.py
-├── planning.md
-├── README.md
-├── requirements.txt
-├── audit_log.json
-├── .env
-├── .gitignore
-└── .venv/
-```
-
-The `.env` file and `.venv` directory should not be committed to GitHub.
-
----
-
-## Installation
-
-Create and activate a virtual environment.
+### 1. Create and activate a virtual environment
 
 Windows PowerShell:
 
 ```powershell
 python -m venv .venv
-.venv\Scripts\Activate.ps1
+.\.venv\Scripts\Activate.ps1
 ```
 
-Install dependencies:
+### 2. Install Dependencies
 
 ```powershell
 pip install -r requirements.txt
 ```
 
-Create a `.env` file containing:
+### 3. Configure Environment Variables
+
+Create a `.env` file and add the required API key:
 
 ```text
 GROQ_API_KEY=your_api_key_here
 ```
 
-Do not commit the `.env` file.
+The `.env` file is excluded from Git and should never be committed.
 
-Run the application:
+### 4. Start the Application
 
 ```powershell
 python app.py
 ```
 
-The development server will run locally at:
+The development server runs locally at:
 
 ```text
 http://127.0.0.1:5000
@@ -590,21 +374,18 @@ http://127.0.0.1:5000
 
 ---
 
-## Dependencies
+## Project Files
 
-The project uses:
-
-- Flask
-- Flask-Limiter
-- Groq Python SDK
-- python-dotenv
-
-Python's standard library is also used for JSON handling, UUID generation, regular expressions, statistics, timestamps, and file operations.
+- `app.py` — Contains the Flask application, detection logic, classification process, transparency labels, audit logging, appeal handling, and rate limiting.
+- `planning.md` — Documents the project's initial plan and design decisions.
+- `audit_log.json` — Contains the audit trail generated during testing.
+- `requirements.txt` — Lists the Python dependencies required to run the project.
+- `README.md` — Contains the architecture, implementation decisions, testing evidence, limitations, reflection, and usage documentation.
 
 ---
 
-## Conclusion
+## Responsible Use
 
-Provenance Guard demonstrates that AI-content attribution should be treated as an uncertain inference rather than a definitive authorship test.
+Provenance Guard is a demonstration project and should not be used as definitive evidence that a person did or did not use artificial intelligence.
 
-By combining multiple detection signals with transparent confidence scoring, uncertainty-aware labels, structured logging, rate limiting, and a creator appeals process, the project emphasizes responsible handling of attribution decisions while acknowledging the technical limitations of AI-detection systems.
+AI-content detection is probabilistic and can make mistakes. Classification results should therefore be treated as signals for further review rather than proof of authorship.

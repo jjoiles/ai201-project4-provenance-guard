@@ -54,5 +54,16 @@
         "stylometric_score": 0.48,
         "status": "under_review",
         "appeal_reasoning": "I wrote this content myself and believe the classification should be reviewed."
+    },
+    {
+        "content_id": "d062b967-801c-4505-9583-2182480a435f",
+        "creator_id": "high-confidence-ai-test",
+        "timestamp": "2026-10-06T02:24:02.274128+00:00",
+        "attribution": "uncertain",
+        "confidence": 0.596,
+        "llm_score": 0.78,
+        "stylometric_score": 0.32,
+        "status": "classified",
+        "appeal_reasoning": null
     }
 ]
