@@ -1,0 +1,58 @@
+[
+    {
+        "content_id": "447aba41-70d6-461c-abfa-0700cae1bb7f",
+        "creator_id": "test-ai",
+        "timestamp": "2026-10-06T01:49:44.026042+00:00",
+        "attribution": "uncertain",
+        "confidence": 0.558,
+        "llm_score": 0.65,
+        "stylometric_score": 0.42,
+        "status": "classified",
+        "appeal_reasoning": null
+    },
+    {
+        "content_id": "c778eca5-efeb-4ce3-a92a-e2876c55dd29",
+        "creator_id": "test-human",
+        "timestamp": "2026-10-06T01:51:28.653822+00:00",
+        "attribution": "likely_human",
+        "confidence": 0.258,
+        "llm_score": 0.15,
+        "stylometric_score": 0.42,
+        "status": "classified",
+        "appeal_reasoning": null
+    },
+    {
+        "content_id": "5026fb39-93a7-405c-8c85-1aa9d8cd3efd",
+        "creator_id": "test-borderline-1",
+        "timestamp": "2026-10-06T01:52:10.146579+00:00",
+        "attribution": "likely_human",
+        "confidence": 0.286,
+        "llm_score": 0.25,
+        "stylometric_score": 0.34,
+        "status": "classified",
+        "appeal_reasoning": null
+    },
+    {
+        "content_id": "ed0aa416-d714-4710-bcc7-57fbd0ae147b",
+        "creator_id": "test-borderline-2",
+        "timestamp": "2026-10-06T01:53:05.033595+00:00",
+        "attribution": "uncertain",
+        "confidence": 0.522,
+        "llm_score": 0.55,
+        "stylometric_score": 0.48,
+        "status": "under_review",
+        "appeal_reasoning": "I wrote this content myself and believe the classification should be reviewed."
+    },
+    {
+        "content_id": "ed0aa416-d714-4710-bcc7-57fbd0ae147b",
+        "creator_id": "test-borderline-2",
+        "timestamp": "2026-10-06T01:54:04.976493+00:00",
+        "event": "appeal",
+        "attribution": "uncertain",
+        "confidence": 0.522,
+        "llm_score": 0.55,
+        "stylometric_score": 0.48,
+        "status": "under_review",
+        "appeal_reasoning": "I wrote this content myself and believe the classification should be reviewed."
+    }
+]
