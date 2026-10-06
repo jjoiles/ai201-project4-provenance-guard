@@ -332,7 +332,13 @@ I used AI to help organize the README and explain the architecture and testing e
 I verified the documentation against the actual outputs produced by the application and used the real confidence scores, classifications, audit entries, appeal result, and rate-limit response from my testing rather than presenting invented test results.
 
 ---
+## Portfolio Walkthrough Video
 
+A short walkthrough demonstrating Provenance Guard working end-to-end, including the submission process, detection signals, transparency labels, audit logging, appeal process, and rate limiting.
+
+**Video Link:** [PASTE YOUR VIDEO LINK HERE]
+
+---
 ## Running the Project
 
 ### 1. Create and activate a virtual environment
