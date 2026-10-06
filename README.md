@@ -336,7 +336,7 @@ I verified the documentation against the actual outputs produced by the applicat
 
 A short walkthrough demonstrating Provenance Guard working end-to-end, including the submission process, detection signals, transparency labels, audit logging, appeal process, and rate limiting.
 
-**Video Link:** [PASTE YOUR VIDEO LINK HERE]
+**Video Link:** https://drive.google.com/file/d/1qcTjB5NrmiiOSMtDayG80DYd5XJgzMdX/view?usp=sharing
 
 ---
 ## Running the Project
